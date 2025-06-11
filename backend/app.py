@@ -47,6 +47,40 @@ def login():
             "message": "Invalid credentials"
         }), 401
 
+@app.route('/menu/add', methods=['POST'])
+def add_menu_item():
+    data = request.get_json()
+
+    # Validate required fields
+    name = data.get("name")
+    price = data.get("price")
+    category = data.get("category")
+    available = data.get("available", True)
+    vegan = data.get("vegan", False)
+    description = data.get("description", "")
+    restaurant_id = data.get("restaurant_id", 1)  # Placeholder (adjust later with auth)
+
+    if not all([name, price, category]):
+        return jsonify({"success": False, "message": "Missing required fields"}), 400
+
+    try:
+        item = MenuItem(
+            name=name,
+            price=price,
+            category=category,
+            available=available,
+            vegan=vegan,
+            description=description,
+            restaurant_id=restaurant_id
+        )
+        db.session.add(item)
+        db.session.commit()
+
+        return jsonify({"success": True, "message": "Item added", "item_id": item.id}), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e)}), 500
 
 if __name__ == '__main__':
     with app.app_context():
