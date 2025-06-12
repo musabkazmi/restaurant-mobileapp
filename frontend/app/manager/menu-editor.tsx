@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, TextInput, Switch, Button, StyleSheet, ScrollView } from "react-native";
+import axios from "../../utils/api"; // ✅ Ensure correct relative path to your API setup
 
 export default function MenuEditor() {
   const [name, setName] = useState("");
@@ -9,17 +10,39 @@ export default function MenuEditor() {
   const [vegan, setVegan] = useState(false);
   const [description, setDescription] = useState("");
 
-  const handleAddItem = () => {
-    console.log({
+ const handleAddItem = async () => {
+  if (!name || !price || !category) {
+    alert("Name, price and category are required.");
+    return;
+  }
+
+  try {
+    const response = await axios.post("/menu/add", {
       name,
       price: parseFloat(price),
       category,
       available,
       vegan,
-      description
+      description,
+      restaurant_id: 1 // 🔁 Replace with real restaurant ID later
     });
-    // Later: send to Flask backend via Axios
-  };
+
+    if (response.data.success) {
+      alert("Item added successfully!");
+      setName("");
+      setPrice("");
+      setCategory("Food");
+      setAvailable(true);
+      setVegan(false);
+      setDescription("");
+    } else {
+      alert("Failed to add item: " + response.data.message);
+    }
+  } catch (err) {
+    console.error("API error:", err);
+    alert("Something went wrong. Check console.");
+  }
+};
 
   return (
     <ScrollView contentContainerStyle={styles.container}>

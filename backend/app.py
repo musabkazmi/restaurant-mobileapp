@@ -82,6 +82,59 @@ def add_menu_item():
         db.session.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
 
+@app.route('/menu/list', methods=['GET'])
+def list_menu_items():
+    try:
+        items = MenuItem.query.all()
+        return jsonify({
+            "success": True,
+            "items": [item.to_dict() for item in items]
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 400
+
+
+@app.route('/menu/<int:item_id>/availability', methods=['PUT'])
+def update_availability(item_id):
+    data = request.get_json()
+    available = data.get("available")
+
+    item = MenuItem.query.get(item_id)
+    if not item:
+        return jsonify({"success": False, "message": "Item not found"}), 404
+
+    item.available = available
+    db.session.commit()
+    return jsonify({"success": True, "message": "Availability updated"})
+
+@app.route('/menu/update/<int:item_id>', methods=['PUT'])
+def update_menu_item(item_id):
+    data = request.get_json()
+    try:
+        item = MenuItem.query.get(item_id)
+        if not item:
+            return jsonify({"success": False, "message": "Item not found"}), 404
+
+        # Optional fields that may be updated
+        if 'available' in data:
+            item.available = data['available']
+        if 'price' in data:
+            item.price = data['price']
+        if 'description' in data:
+            item.description = data['description']
+        if 'vegan' in data:
+            item.vegan = data['vegan']
+
+        db.session.commit()
+        return jsonify({"success": True, "message": "Item updated", "item": item.to_dict()}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e)}), 500
+
 if __name__ == '__main__':
     with app.app_context():
         print("Creating tables...")
