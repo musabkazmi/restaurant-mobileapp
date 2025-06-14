@@ -7,6 +7,11 @@ from models import db, User, Restaurant, MenuItem  # Import your models
 app = Flask(__name__)
 CORS(app)  # Allow access from React Native Expo
 
+
+# Temporary static API token for manager AI access
+MANAGER_AI_TOKEN = "secret-manager-ai-token"  # Change this to something secure
+
+
 # ⬇️ Replace with your own MySQL connection details
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:1234@localhost/restaurant_db'
 
@@ -134,6 +139,55 @@ def update_menu_item(item_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route('/ai/menu-data', methods=['GET'])
+def get_menu_data_for_ai():
+    token = request.headers.get("Authorization")
+
+    if token != f"Bearer {MANAGER_AI_TOKEN}":
+        return jsonify({"error": "Unauthorized"}), 403
+
+    # For now, use restaurant_id = 1 (in real setup: look it up from auth/session)
+    restaurant_id = 1
+
+    items = MenuItem.query.filter_by(restaurant_id=restaurant_id).all()
+    return jsonify([item.to_dict() for item in items])
+
+
+@app.route('/ai/menu-prompt', methods=['GET'])
+def get_menu_prompt():
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Unauthorized"}), 403
+
+    token = auth_header.split(" ")[1]
+    if token != "secret-manager-ai-token":  # Replace with env-secured token later
+        return jsonify({"error": "Unauthorized"}), 403
+
+    # For now, assume restaurant_id = 1
+    items = MenuItem.query.filter_by(restaurant_id=1).all()
+
+    if not items:
+        return jsonify({"error": "No menu items found"}), 404
+
+    # 🧠 Build the prompt
+    formatted_items = "\n".join([
+        f"- {item.name} (₹{item.price}) - {item.category} | {'Vegan' if item.vegan else 'Non-Vegan'} | "
+        f"{'Available' if item.available else 'Unavailable'}\n  Description: {item.description}"
+        for item in items
+    ])
+
+    prompt = f"""
+You are a helpful restaurant assistant AI. Based on the menu below, answer questions about dishes, availability, categories, pricing, etc.
+
+Menu:
+{formatted_items}
+
+Respond only based on this menu.
+"""
+
+    return jsonify({"prompt": prompt})
+
 
 if __name__ == '__main__':
     with app.app_context():
