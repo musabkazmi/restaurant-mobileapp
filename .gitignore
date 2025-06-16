@@ -6,6 +6,8 @@ frontend/.expo-shared/
 # Python
 backend/venv/
 __pycache__/
+flask_session/
+
 
 # Others
 .DS_Store

@@ -5,8 +5,14 @@ export default function ManagerDashboard() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Manager Dashboard</Text>
+
       <Button title="Edit Menu" onPress={() => router.push("/manager/menu-editor")} />
+      <View style={styles.spacer} />
+
       <Button title="View Menu" onPress={() => router.push("/manager/view-menu")} />
+      <View style={styles.spacer} />
+
+      <Button title="Ask AI Agent" onPress={() => router.push("/manager/ai-agent")} />
     </View>
   );
 }
@@ -23,5 +29,8 @@ const styles = StyleSheet.create({
     color: "#fff",
     marginBottom: 24,
     textAlign: "center",
+  },
+  spacer: {
+    height: 16,
   },
 });

@@ -1,31 +1,36 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
+from flask_session import Session
+from dotenv import load_dotenv
+import os
+from openai import OpenAI
 
-from models import db, User, Restaurant, MenuItem  # Import your models
+from models import db, User, Restaurant, MenuItem
+
+load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 app = Flask(__name__)
-CORS(app)  # Allow access from React Native Expo
+CORS(app, supports_credentials=True, origins=["http://localhost:8081"])
 
 
-# Temporary static API token for manager AI access
-MANAGER_AI_TOKEN = "secret-manager-ai-token"  # Change this to something secure
+# Session config for storing chat history
+app.secret_key = 'your-super-secret-key'
+app.config['SESSION_TYPE'] = 'filesystem'
+Session(app)
 
+MANAGER_AI_TOKEN = "secret-manager-ai-token"
 
-# ⬇️ Replace with your own MySQL connection details
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:1234@localhost/restaurant_db'
-
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Init DB
-db.init_app(app)
+app.config['SESSION_COOKIE_SAMESITE'] = "Lax"
+app.config['SESSION_COOKIE_SECURE'] = False # required for SameSite=None
 
-# 🔐 Dummy login for testing (replace with DB check later)
-VALID_USER = {
-    "email": "admin@example.com",
-    "password": "admin123",
-    "role": "manager"
-}
+db.init_app(app)
 
 @app.route('/')
 def home():
@@ -47,23 +52,18 @@ def login():
             "restaurant_id": user.restaurant.id
         })
     else:
-        return jsonify({
-            "success": False,
-            "message": "Invalid credentials"
-        }), 401
+        return jsonify({"success": False, "message": "Invalid credentials"}), 401
 
 @app.route('/menu/add', methods=['POST'])
 def add_menu_item():
     data = request.get_json()
-
-    # Validate required fields
     name = data.get("name")
     price = data.get("price")
     category = data.get("category")
     available = data.get("available", True)
     vegan = data.get("vegan", False)
     description = data.get("description", "")
-    restaurant_id = data.get("restaurant_id", 1)  # Placeholder (adjust later with auth)
+    restaurant_id = data.get("restaurant_id", 1)
 
     if not all([name, price, category]):
         return jsonify({"success": False, "message": "Missing required fields"}), 400
@@ -91,26 +91,17 @@ def add_menu_item():
 def list_menu_items():
     try:
         items = MenuItem.query.all()
-        return jsonify({
-            "success": True,
-            "items": [item.to_dict() for item in items]
-        }), 200
+        return jsonify({"success": True, "items": [item.to_dict() for item in items]}), 200
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "message": str(e)
-        }), 400
-
+        return jsonify({"success": False, "message": str(e)}), 400
 
 @app.route('/menu/<int:item_id>/availability', methods=['PUT'])
 def update_availability(item_id):
     data = request.get_json()
     available = data.get("available")
-
     item = MenuItem.query.get(item_id)
     if not item:
         return jsonify({"success": False, "message": "Item not found"}), 404
-
     item.available = available
     db.session.commit()
     return jsonify({"success": True, "message": "Availability updated"})
@@ -123,7 +114,6 @@ def update_menu_item(item_id):
         if not item:
             return jsonify({"success": False, "message": "Item not found"}), 404
 
-        # Optional fields that may be updated
         if 'available' in data:
             item.available = data['available']
         if 'price' in data:
@@ -140,54 +130,71 @@ def update_menu_item(item_id):
         db.session.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
 
-@app.route('/ai/menu-data', methods=['GET'])
-def get_menu_data_for_ai():
-    token = request.headers.get("Authorization")
+from flask import request, jsonify, session
+from models import MenuItem
 
-    if token != f"Bearer {MANAGER_AI_TOKEN}":
+@app.route('/ai/chat', methods=['POST'])
+def chat():
+    auth = request.headers.get("Authorization")
+    if auth != "Bearer secret-manager-ai-token":
         return jsonify({"error": "Unauthorized"}), 403
 
-    # For now, use restaurant_id = 1 (in real setup: look it up from auth/session)
-    restaurant_id = 1
+    data = request.get_json()
+    question = data.get("question")
 
-    items = MenuItem.query.filter_by(restaurant_id=restaurant_id).all()
-    return jsonify([item.to_dict() for item in items])
+    if not question:
+        return jsonify({"error": "Missing question"}), 400
 
+    # Debug: print incoming question
+    print(f"\n🔹 Incoming question: {question}")
 
-@app.route('/ai/menu-prompt', methods=['GET'])
-def get_menu_prompt():
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return jsonify({"error": "Unauthorized"}), 403
+    # 🧠 Load chat history
+    history = session.get("chat_history", [])
+    print(f"📦 Loaded chat history: {history}")
 
-    token = auth_header.split(" ")[1]
-    if token != "secret-manager-ai-token":  # Replace with env-secured token later
-        return jsonify({"error": "Unauthorized"}), 403
+    # If no history, prepend system message with full menu
+    if not history:
+        print("🧠 No history — injecting menu into context...")
+        menu_items = MenuItem.query.all()
+        formatted_items = "\n".join([
+            f"{item.name} (₹{item.price}) - {item.category} | "
+            f"{'Vegan' if item.vegan else 'Non-Vegan'} | "
+            f"{'Available' if item.available else 'Unavailable'}\n"
+            f"Description: {item.description}"
+            for item in menu_items
+        ])
 
-    # For now, assume restaurant_id = 1
-    items = MenuItem.query.filter_by(restaurant_id=1).all()
+        system_msg = {
+            "role": "system",
+            "content": f"You are a helpful restaurant assistant AI. ONLY use this menu:\n\n{formatted_items}"
+        }
 
-    if not items:
-        return jsonify({"error": "No menu items found"}), 404
+        history.append(system_msg)
+        session["chat_history"] = history
+        print("✅ Menu injected.")
 
-    # 🧠 Build the prompt
-    formatted_items = "\n".join([
-        f"- {item.name} (₹{item.price}) - {item.category} | {'Vegan' if item.vegan else 'Non-Vegan'} | "
-        f"{'Available' if item.available else 'Unavailable'}\n  Description: {item.description}"
-        for item in items
-    ])
+    # Append user question
+    history.append({"role": "user", "content": question})
 
-    prompt = f"""
-You are a helpful restaurant assistant AI. Based on the menu below, answer questions about dishes, availability, categories, pricing, etc.
+    # Call OpenAI
+    try:
+        print("🚀 Calling OpenAI with messages:", history)
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=history
+        )
+        answer = response.choices[0].message.content
 
-Menu:
-{formatted_items}
+        # Append AI response and save
+        history.append({"role": "assistant", "content": answer})
+        session["chat_history"] = history
+        print("💬 AI answer:", answer)
 
-Respond only based on this menu.
-"""
+        return jsonify({"answer": answer})
 
-    return jsonify({"prompt": prompt})
-
+    except Exception as e:
+        print("❌ Error:", e)
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     with app.app_context():
