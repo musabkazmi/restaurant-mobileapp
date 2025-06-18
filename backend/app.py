@@ -23,11 +23,12 @@ Session(app)
 
 MANAGER_AI_TOKEN = "secret-manager-ai-token"
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:1234@localhost/restaurant_db'
+# Use external DB URI from environment
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DB_URI")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 app.config['SESSION_COOKIE_SAMESITE'] = "Lax"
-app.config['SESSION_COOKIE_SECURE'] = False  # required for SameSite=None
+app.config['SESSION_COOKIE_SECURE'] = False  # for local dev
 
 db.init_app(app)
 
@@ -130,8 +131,6 @@ def update_menu_item(item_id):
         db.session.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
 
-# after db inclusion
-
 @app.route('/ai/chat', methods=['POST'])
 def chat():
     auth = request.headers.get("Authorization")
@@ -147,7 +146,6 @@ def chat():
 
     print(f"\n🔹 Question from user {user_id}: {question}")
 
-    # Fetch or create message history
     messages = AIMessage.query.filter_by(user_id=user_id).order_by(AIMessage.timestamp).all()
 
     if not any(m.role == "system" for m in messages):
@@ -157,7 +155,6 @@ def chat():
             return jsonify({"error": "User not found"}), 404
 
         menu_items = MenuItem.query.filter_by(restaurant_id=user.restaurant_id).all()
-
         if not menu_items:
             return jsonify({"error": "No menu items found for this restaurant"}), 404
 
@@ -178,13 +175,11 @@ def chat():
         db.session.commit()
         messages.insert(0, system_msg)
 
-    # Save user question
     user_msg = AIMessage(user_id=user_id, role="user", content=question)
     db.session.add(user_msg)
     db.session.commit()
     messages.append(user_msg)
 
-    # Convert for OpenAI
     message_payload = [{"role": m.role, "content": m.content} for m in messages]
 
     try:
@@ -196,7 +191,6 @@ def chat():
         ai_response = response.choices[0].message.content
         print("💬 AI:", ai_response)
 
-        # Save AI reply
         ai_msg = AIMessage(user_id=user_id, role="assistant", content=ai_response)
         db.session.add(ai_msg)
         db.session.commit()
@@ -207,8 +201,18 @@ def chat():
         print("❌ Error:", e)
         return jsonify({"error": str(e)}), 500
 
+# ✅ This line is skipped when run by Gunicorn (Render uses this mode)
 if __name__ == '__main__':
     with app.app_context():
         print("Creating tables...")
         db.create_all()
     app.run(host='0.0.0.0', port=5000, debug=True)
+
+
+
+
+# if __name__ == '__main__':
+#     with app.app_context():
+#         print("Creating tables...")
+#         db.create_all()
+#     app.run(host='0.0.0.0', port=5000, debug=True)
