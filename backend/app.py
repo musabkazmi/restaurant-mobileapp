@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import os
 from openai import OpenAI
 
-from models import db, User, Restaurant, MenuItem
+from models import db, User, Restaurant, MenuItem, AIMessage  # Import AIMessage
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -15,7 +15,6 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True, origins=["http://localhost:8081"])
-
 
 # Session config for storing chat history
 app.secret_key = 'your-super-secret-key'
@@ -28,7 +27,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:1234@localhost/res
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 app.config['SESSION_COOKIE_SAMESITE'] = "Lax"
-app.config['SESSION_COOKIE_SECURE'] = False # required for SameSite=None
+app.config['SESSION_COOKIE_SECURE'] = False  # required for SameSite=None
 
 db.init_app(app)
 
@@ -49,7 +48,8 @@ def login():
             "success": True,
             "role": user.role,
             "restaurant": user.restaurant.name,
-            "restaurant_id": user.restaurant.id
+            "restaurant_id": user.restaurant.id,
+            "user_id": user.id
         })
     else:
         return jsonify({"success": False, "message": "Invalid credentials"}), 401
@@ -130,8 +130,7 @@ def update_menu_item(item_id):
         db.session.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
 
-from flask import request, jsonify, session
-from models import MenuItem
+# after db inclusion
 
 @app.route('/ai/chat', methods=['POST'])
 def chat():
@@ -141,22 +140,28 @@ def chat():
 
     data = request.get_json()
     question = data.get("question")
+    user_id = data.get("user_id")
 
-    if not question:
-        return jsonify({"error": "Missing question"}), 400
+    if not question or not user_id:
+        return jsonify({"error": "Missing question or user_id"}), 400
 
-    # Debug: print incoming question
-    print(f"\n🔹 Incoming question: {question}")
+    print(f"\n🔹 Question from user {user_id}: {question}")
 
-    # 🧠 Load chat history
-    history = session.get("chat_history", [])
-    print(f"📦 Loaded chat history: {history}")
+    # Fetch or create message history
+    messages = AIMessage.query.filter_by(user_id=user_id).order_by(AIMessage.timestamp).all()
 
-    # If no history, prepend system message with full menu
-    if not history:
-        print("🧠 No history — injecting menu into context...")
-        menu_items = MenuItem.query.all()
-        formatted_items = "\n".join([
+    if not any(m.role == "system" for m in messages):
+        print("📥 Injecting menu into system prompt...")
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        menu_items = MenuItem.query.filter_by(restaurant_id=user.restaurant_id).all()
+
+        if not menu_items:
+            return jsonify({"error": "No menu items found for this restaurant"}), 404
+
+        formatted_menu = "\n".join([
             f"{item.name} (₹{item.price}) - {item.category} | "
             f"{'Vegan' if item.vegan else 'Non-Vegan'} | "
             f"{'Available' if item.available else 'Unavailable'}\n"
@@ -164,33 +169,39 @@ def chat():
             for item in menu_items
         ])
 
-        system_msg = {
-            "role": "system",
-            "content": f"You are a helpful restaurant assistant AI. ONLY use this menu:\n\n{formatted_items}"
-        }
+        system_msg = AIMessage(
+            user_id=user_id,
+            role="system",
+            content=f"You are a helpful restaurant assistant AI. ONLY use this menu:\n\n{formatted_menu}"
+        )
+        db.session.add(system_msg)
+        db.session.commit()
+        messages.insert(0, system_msg)
 
-        history.append(system_msg)
-        session["chat_history"] = history
-        print("✅ Menu injected.")
+    # Save user question
+    user_msg = AIMessage(user_id=user_id, role="user", content=question)
+    db.session.add(user_msg)
+    db.session.commit()
+    messages.append(user_msg)
 
-    # Append user question
-    history.append({"role": "user", "content": question})
+    # Convert for OpenAI
+    message_payload = [{"role": m.role, "content": m.content} for m in messages]
 
-    # Call OpenAI
     try:
-        print("🚀 Calling OpenAI with messages:", history)
+        print("🚀 Sending to OpenAI...")
         response = client.chat.completions.create(
             model="gpt-4",
-            messages=history
+            messages=message_payload
         )
-        answer = response.choices[0].message.content
+        ai_response = response.choices[0].message.content
+        print("💬 AI:", ai_response)
 
-        # Append AI response and save
-        history.append({"role": "assistant", "content": answer})
-        session["chat_history"] = history
-        print("💬 AI answer:", answer)
+        # Save AI reply
+        ai_msg = AIMessage(user_id=user_id, role="assistant", content=ai_response)
+        db.session.add(ai_msg)
+        db.session.commit()
 
-        return jsonify({"answer": answer})
+        return jsonify({"answer": ai_response})
 
     except Exception as e:
         print("❌ Error:", e)

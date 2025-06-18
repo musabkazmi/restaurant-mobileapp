@@ -12,43 +12,48 @@ export default function AIAgentScreen() {
   const [loading, setLoading] = useState(false);
 
   const handleSend = async () => {
-    if (!question.trim()) return;
+  if (!question.trim()) return;
 
-    const userMessage: Message = { sender: 'manager', text: question };
-    const newMessages: Message[] = [...messages, userMessage];
-    setMessages(newMessages);
-    setQuestion('');
-    setLoading(true);
+  const userMessage: Message = { sender: 'manager', text: question };
+  const newMessages: Message[] = [...messages, userMessage];
+  setMessages(newMessages);
+  setQuestion('');
+  setLoading(true);
 
-    try {
-      const response = await fetch('http://192.168.2.59:5000/ai/chat', {
-        method: 'POST',
-        credentials: 'include', 
-        headers: {
-          'Authorization': 'Bearer secret-manager-ai-token',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ question })
-      });
+  try {
+    const response = await fetch('http://192.168.2.59:5000/ai/chat', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Authorization': 'Bearer secret-manager-ai-token',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        question,
+        // user_id: 1  // ⚠️ hardcoded for now — will use actual logged-in manager ID in next phase
+        user_id: globalThis.userId // <-- Add this
+      })
+    });
 
-      const data = await response.json();
+    const data = await response.json();
 
-      const aiMessage: Message = {
-        sender: 'ai',
-        text: data.answer || 'No answer received from AI.'
-      };
+    const aiMessage: Message = {
+      sender: 'ai',
+      text: data.answer || 'No answer received from AI.'
+    };
 
-      setMessages([...newMessages, aiMessage]);
-    } catch (error) {
-      const errorMessage: Message = {
-        sender: 'ai',
-        text: 'Error talking to AI agent.'
-      };
-      setMessages([...newMessages, errorMessage]);
-    }
+    setMessages([...newMessages, aiMessage]);
+  } catch (error) {
+    const errorMessage: Message = {
+      sender: 'ai',
+      text: 'Error talking to AI agent.'
+    };
+    setMessages([...newMessages, errorMessage]);
+  }
 
-    setLoading(false);
-  };
+  setLoading(false);
+};
+
 
   return (
     <View style={styles.container}>

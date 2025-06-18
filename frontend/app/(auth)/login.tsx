@@ -11,19 +11,22 @@ export default function LoginScreen() {
   const handleLogin = async () => {
     try {
       const res = await API.post("/login", { email, password });
-      const { role } = res.data;
+      const { role, restaurant_id, user_id } = res.data;
+
+      // Store globally for later use (e.g., in AI chat)
+      globalThis.userId = user_id;
+      globalThis.restaurantId = restaurant_id;
 
       // 🔁 Redirect based on role
-     if (role === "manager") {
-  router.replace("/manager/manager-dashboard");
-} else if (role === "waiter") {
-  router.replace("/service/waiter-dashboard");
-} else if (role === "kitchen") {
-  router.replace("/kitchen/kitchen-dashboard");
-} else {
-  Alert.alert("Unknown role");
-}
-
+      if (role === "manager") {
+        router.replace("/manager/manager-dashboard");
+      } else if (role === "waiter") {
+        router.replace("/service/waiter-dashboard");
+      } else if (role === "kitchen") {
+        router.replace("/kitchen/kitchen-dashboard");
+      } else {
+        Alert.alert("Unknown role");
+      }
 
     } catch (err) {
       Alert.alert("Login Failed", "Invalid email or password");
