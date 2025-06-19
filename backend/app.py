@@ -8,6 +8,8 @@ from openai import OpenAI
 
 from models import db, User, Restaurant, MenuItem, AIMessage  # Import AIMessage
 
+from sqlalchemy import text  
+
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
@@ -25,6 +27,7 @@ MANAGER_AI_TOKEN = "secret-manager-ai-token"
 
 # Use external DB URI from environment
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DB_URI")
+# app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:1234@localhost/restaurant_db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 app.config['SESSION_COOKIE_SAMESITE'] = "Lax"
@@ -200,6 +203,66 @@ def chat():
     except Exception as e:
         print("❌ Error:", e)
         return jsonify({"error": str(e)}), 500
+
+@app.route('/db/tables')
+def list_tables():
+    from sqlalchemy import inspect
+    inspector = inspect(db.engine)
+    tables = inspector.get_table_names()
+    return jsonify({"tables": tables})
+
+@app.route('/db/preview/<table_name>', methods=['GET'])
+def preview_table(table_name):
+    try:
+        sql = text(f"SELECT * FROM {table_name} LIMIT 10")
+        result = db.session.execute(sql)
+        rows = [dict(row._mapping) for row in result]  # ✅ FIXED LINE
+        return jsonify({"success": True, "rows": rows})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/db/seed-restaurants')
+def seed_restaurants():
+    try:
+        restaurants = [
+            {"name": "Pizza Town", "address": "Main St 1"},
+            {"name": "Burger Hub", "address": "2nd Avenue"}
+        ]
+
+        for r in restaurants:
+            restaurant = Restaurant(**r)
+            db.session.add(restaurant)
+        db.session.commit()
+
+        return jsonify({"success": True, "message": "Restaurants inserted"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/db/seed-users')
+def seed_users():
+    try:
+        users = [
+            {"email": "manager1@pizza.com", "password": "pass123", "role": "manager", "restaurant_id": 1},
+            {"email": "waiter1a@pizza.com", "password": "pass123", "role": "waiter", "restaurant_id": 1},
+            {"email": "waiter1b@pizza.com", "password": "pass123", "role": "waiter", "restaurant_id": 1},
+            {"email": "kitchen1a@pizza.com", "password": "pass123", "role": "kitchen", "restaurant_id": 1},
+            {"email": "kitchen1b@pizza.com", "password": "pass123", "role": "kitchen", "restaurant_id": 1},
+            {"email": "manager2@burger.com", "password": "pass123", "role": "manager", "restaurant_id": 2},
+            {"email": "waiter2a@burger.com", "password": "pass123", "role": "waiter", "restaurant_id": 2},
+            {"email": "waiter2b@burger.com", "password": "pass123", "role": "waiter", "restaurant_id": 2},
+            {"email": "kitchen2a@burger.com", "password": "pass123", "role": "kitchen", "restaurant_id": 2},
+            {"email": "kitchen2b@burger.com", "password": "pass123", "role": "kitchen", "restaurant_id": 2},
+        ]
+
+        for u in users:
+            user = User(**u)
+            db.session.add(user)
+        db.session.commit()
+        return jsonify({"success": True, "message": "Users inserted"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "error": str(e)})
 
 # ✅ This line is skipped when run by Gunicorn (Render uses this mode)
 if __name__ == '__main__':

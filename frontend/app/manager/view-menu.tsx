@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, FlatList, Switch, StyleSheet, Alert } from "react-native";
+import { BASE_URL } from "../../config";
+
 
 type MenuItem = {
   id: number;
@@ -15,7 +17,7 @@ const ViewMenu = () => {
 
   const fetchMenu = async () => {
     try {
-      const response = await fetch("http://192.168.2.59:5000/menu/list");
+      const response = await fetch(`${BASE_URL}/menu/list`);
       const data = await response.json();
       setMenuItems(data.items);
     } catch (error) {
@@ -26,7 +28,7 @@ const ViewMenu = () => {
 
   const toggleAvailability = async (itemId: number, newStatus: boolean) => {
     try {
-      const response = await fetch(`http://192.168.2.59:5000/menu/update/${itemId}`, {
+      const response = await fetch(`${BASE_URL}/menu/update/${itemId}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -63,7 +65,9 @@ const ViewMenu = () => {
         keyExtractor={(item) => item.id.toString()}
         renderItem={({ item }) => (
           <View style={styles.itemCard}>
-            <Text style={styles.name}>{item.name} - ₹{item.price}</Text>
+            <Text style={styles.name}>
+              {item.name} - ₹{item.price}
+            </Text>
             <Text style={styles.description}>{item.description}</Text>
             <View style={styles.switchRow}>
               <Text style={styles.label}>Available:</Text>
