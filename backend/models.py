@@ -59,3 +59,23 @@ class AIMessage(db.Model):
 
     def __repr__(self):
         return f"<AIMessage {self.role}: {self.content[:30]}...>"
+
+
+
+class Order(db.Model):
+    __tablename__ = 'orders'
+    id = db.Column(db.Integer, primary_key=True)
+    restaurant_id = db.Column(db.Integer, db.ForeignKey('restaurant.id'), nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    status = db.Column(db.String(50), default="pending")
+
+    items = db.relationship('OrderItem', backref='order', cascade='all, delete-orphan')
+
+
+class OrderItem(db.Model):
+    __tablename__ = 'order_items'
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey('orders.id'), nullable=False)
+    menu_item_id = db.Column(db.Integer, db.ForeignKey('menu_item.id'), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)

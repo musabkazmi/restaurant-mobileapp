@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,9 +6,12 @@ import {
   Button,
   ScrollView,
   StyleSheet,
-  ActivityIndicator
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform
 } from 'react-native';
-import { BASE_URL } from "../../config"; // Adjust path if needed
+import { BASE_URL } from "../../config";
+import { router } from "expo-router";
 
 type Message = {
   sender: 'manager' | 'ai';
@@ -19,6 +22,7 @@ export default function AIAgentScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
 
   const handleSend = async () => {
     if (!question.trim()) return;
@@ -53,17 +57,29 @@ export default function AIAgentScreen() {
     } catch (error) {
       setMessages([...newMessages, {
         sender: 'ai',
-        text: 'Error talking to AI agent.'
+        text: '⚠️ Error talking to AI agent.'
       }]);
     }
 
     setLoading(false);
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.heading}>Ask the AI Agent</Text>
-      <ScrollView style={styles.chatBox}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <Text style={styles.heading}>🧠 Ask the AI Agent</Text>
+      <Button title="Back" onPress={() => router.back()} />
+
+      <ScrollView
+        ref={scrollViewRef}
+        style={styles.chatBox}
+        contentContainerStyle={{ paddingBottom: 24 }}
+      >
         {messages.map((msg, index) => (
           <View
             key={index}
@@ -91,7 +107,7 @@ export default function AIAgentScreen() {
       ) : (
         <Button title="Send" onPress={handleSend} />
       )}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -106,17 +122,19 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 16,
+    marginBottom: 8,
     textAlign: 'center',
   },
   chatBox: {
     flex: 1,
     marginBottom: 12,
+    marginTop: 8,
   },
   messageBubble: {
     marginBottom: 10,
     borderRadius: 8,
     padding: 10,
+    maxWidth: '80%',
   },
   managerBubble: {
     alignSelf: 'flex-end',

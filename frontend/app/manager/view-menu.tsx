@@ -1,7 +1,15 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, FlatList, Switch, StyleSheet, Alert } from "react-native";
+import {
+  View,
+  Text,
+  FlatList,
+  Switch,
+  StyleSheet,
+  Alert,
+  Button,
+} from "react-native";
 import { BASE_URL } from "../../config";
-
+import { router } from "expo-router";
 
 type MenuItem = {
   id: number;
@@ -19,7 +27,18 @@ const ViewMenu = () => {
     try {
       const response = await fetch(`${BASE_URL}/menu/list`);
       const data = await response.json();
-      setMenuItems(data.items);
+      const restaurantId = globalThis.restaurantId;
+
+      if (restaurantId == null) {
+        Alert.alert("Error", "Missing restaurant ID.");
+        return;
+      }
+
+      const filteredItems = data.items.filter(
+        (item: MenuItem) => item.restaurant_id === restaurantId
+      );
+
+      setMenuItems(filteredItems);
     } catch (error) {
       console.error("Error fetching menu:", error);
       Alert.alert("Error", "Could not fetch menu items.");
@@ -29,7 +48,7 @@ const ViewMenu = () => {
   const toggleAvailability = async (itemId: number, newStatus: boolean) => {
     try {
       const response = await fetch(`${BASE_URL}/menu/update/${itemId}`, {
-        method: "PUT",
+        method: "PATCH", // PATCH is better for partial updates
         headers: {
           "Content-Type": "application/json",
         },
@@ -59,7 +78,10 @@ const ViewMenu = () => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Restaurant Menu</Text>
+      <Button title="Back" onPress={() => router.back()} />
+
+      <Text style={styles.title}>📋 Restaurant Menu</Text>
+
       <FlatList
         data={menuItems}
         keyExtractor={(item) => item.id.toString()}

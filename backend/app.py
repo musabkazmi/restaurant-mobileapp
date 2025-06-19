@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 import os
 from openai import OpenAI
 
-from models import db, User, Restaurant, MenuItem, AIMessage  # Import AIMessage
+# from models import db, User, Restaurant, MenuItem, AIMessage  # Import AIMessage
+from models import db, User, Restaurant, MenuItem, AIMessage, Order, OrderItem
 
 from sqlalchemy import text  
 
@@ -263,6 +264,117 @@ def seed_users():
     except Exception as e:
         db.session.rollback()
         return jsonify({"success": False, "error": str(e)})
+
+@app.route('/db/seed-menu', methods=['POST'])
+def seed_menu():
+    try:
+        items = [
+    {
+        "name": "Cheese Burger",
+        "price": 7.99,
+        "category": "Food",
+        "available": True,
+        "vegan": False,
+        "description": "Grilled beef burger with cheddar cheese",
+        "restaurant_id": 2
+    },
+    {
+        "name": "Vegan Salad",
+        "price": 5.49,
+        "category": "Food",
+        "available": True,
+        "vegan": True,
+        "description": "Fresh garden vegetables with olive oil",
+        "restaurant_id": 1
+    },
+    {
+        "name": "Margherita Pizza",
+        "price": 9.99,
+        "category": "Food",
+        "available": True,
+        "vegan": False,
+        "description": "Classic cheese and tomato pizza",
+        "restaurant_id": 1
+    },
+    {
+        "name": "Paneer Tikka",
+        "price": 6.99,
+        "category": "Food",
+        "available": True,
+        "vegan": False,
+        "description": "Spiced grilled paneer cubes with onions and capsicum",
+        "restaurant_id": 1
+    },
+    {
+        "name": "Grilled Chicken Sandwich",
+        "price": 5.75,
+        "category": "Food",
+        "available": True,
+        "vegan": False,
+        "description": "Tender grilled chicken breast with lettuce and mayo",
+        "restaurant_id": 2
+    },
+    {
+        "name": "Falafel Wrap",
+        "price": 4.99,
+        "category": "Food",
+        "available": True,
+        "vegan": True,
+        "description": "Crispy falafel in pita bread with hummus and veggies",
+        "restaurant_id": 2
+    }
+]
+
+        for item_data in items:
+            item = MenuItem(**item_data)
+            db.session.add(item)
+
+        db.session.commit()
+        return jsonify({"success": True, "message": "Sample menu items added."})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/order/create', methods=['POST'])
+def create_order():
+    data = request.get_json()
+    print("🚨 Incoming JSON data:", data)  # Add this line to inspect input
+
+    restaurant_id = data.get("restaurant_id")
+    user_id = data.get("user_id")
+    items = data.get("items")  # [{ menu_item_id: 1, quantity: 2 }, ...]
+
+    if restaurant_id is None:
+        return jsonify({"success": False, "message": "Missing restaurant_id"}), 400
+    if user_id is None:
+        return jsonify({"success": False, "message": "Missing waiter_id"}), 400
+    if not isinstance(items, list) or len(items) == 0:
+        return jsonify({"success": False, "message": "Items must be a non-empty list"}), 400
+
+    try:
+        order = Order(
+            restaurant_id=restaurant_id,
+            created_by=user_id,
+        )
+        db.session.add(order)
+        db.session.flush()  # to get order.id
+
+        for item in items:
+            order_item = OrderItem(
+                order_id=order.id,
+                menu_item_id=item["menu_item_id"],
+                quantity=item["quantity"]
+            )
+            db.session.add(order_item)
+
+        db.session.commit()
+
+        return jsonify({"success": True, "order_id": order.id}), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e)}), 500
+
 
 # ✅ This line is skipped when run by Gunicorn (Render uses this mode)
 if __name__ == '__main__':
