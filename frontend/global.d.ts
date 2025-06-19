@@ -1,6 +1,6 @@
 export {};
 
 declare global {
-  var userId: number;
-  var restaurantId: number;
+  var userId: number | null;
+  var restaurantId: number | null;
 }
