@@ -379,6 +379,41 @@ def create_order():
         db.session.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
 
+@app.route('/order/list', methods=['GET'])
+def list_orders():
+    restaurant_id = request.args.get("restaurant_id")
+    if not restaurant_id:
+        return jsonify({"success": False, "message": "Missing restaurant_id"}), 400
+
+    orders = Order.query.filter_by(restaurant_id=restaurant_id).order_by(Order.timestamp.desc()).all()
+
+    result = []
+    for order in orders:
+        items = (
+            db.session.query(OrderItem.menu_item_id, OrderItem.quantity, MenuItem.name)
+            .join(MenuItem, OrderItem.menu_item_id == MenuItem.id)
+            .filter(OrderItem.order_id == order.id)
+            .all()
+        )
+        item_list = [
+            {
+                "menu_item_id": i.menu_item_id,
+                "name": i.name,
+                "quantity": i.quantity
+            }
+            for i in items
+        ]
+
+        result.append({
+            "id": order.id,
+            "restaurant_id": order.restaurant_id,
+            "created_by": order.created_by,
+            "status": order.status,
+            "timestamp": order.timestamp.isoformat(),
+            "items": item_list  # ✅ include items
+        })
+
+    return jsonify({"success": True, "orders": result})
 
 # ✅ This line is skipped when run by Gunicorn (Render uses this mode)
 if __name__ == '__main__':
