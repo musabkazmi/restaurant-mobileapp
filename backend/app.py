@@ -389,7 +389,7 @@ def chat():
     ])
 
     formatted_users = "\n".join([
-        f"User {u.id}: {u.username} ({u.role}) - Restaurant {u.restaurant_id}"
+        f"User {u.id} ({u.role}) - Restaurant {u.restaurant_id}"
         for u in users
     ])
 
