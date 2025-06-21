@@ -155,33 +155,56 @@ def chat():
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    # Load latest menu
-    menu_items = MenuItem.query.filter_by(restaurant_id=user.restaurant_id).all()
-    if not menu_items:
-        return jsonify({"error": "No menu items found for this restaurant"}), 404
+    restaurant_id = user.restaurant_id
 
-    print(f"📋 Found {len(menu_items)} menu items for restaurant {user.restaurant_id}")
-
-    formatted_menu = "\n".join([
+    # Load Menu Items
+    menu_items = MenuItem.query.filter_by(restaurant_id=restaurant_id).all()
+    menu_section = "\n".join([
         f"{item.name} (₹{item.price}) - {item.category} | "
         f"{'Vegan' if item.vegan else 'Non-Vegan'} | "
         f"{'Available' if item.available else 'Unavailable'}\n"
         f"Description: {item.description}"
         for item in menu_items
-    ])
+    ]) or "No menu items available."
 
-    # Always inject fresh system message (replaces old ones)
+    # Load Orders
+    orders = Order.query.filter_by(restaurant_id=restaurant_id).order_by(Order.timestamp.desc()).limit(10).all()
+    order_section = "\n".join([
+        f"Order #{o.id} - Status: {o.status} - Created by: User {o.created_by} at {o.timestamp}"
+        for o in orders
+    ]) or "No recent orders found."
+
+    # Load Waiters/Users
+    waiters = User.query.filter_by(restaurant_id=restaurant_id).all()
+    user_section = "\n".join([
+        f"User ID {u.id}: {u.username} ({u.role})"
+        for u in waiters
+    ]) or "No users in this restaurant."
+
+    # Assemble system prompt
+    system_content = f"""You are a helpful AI assistant for restaurant management.
+
+Use the following context ONLY to answer questions.
+
+📋 MENU:
+{menu_section}
+
+📦 RECENT ORDERS:
+{order_section}
+
+👥 USERS:
+{user_section}
+"""
+
+    print("📥 Injecting system prompt with menu + orders + users...")
+
+    # Replace old system messages
     AIMessage.query.filter_by(user_id=user_id, role="system").delete()
-    system_msg = AIMessage(
-        user_id=user_id,
-        role="system",
-        content=f"You are a helpful restaurant assistant AI. ONLY use this menu:\n\n{formatted_menu}"
-    )
-    db.session.add(system_msg)
+    db.session.add(AIMessage(user_id=user_id, role="system", content=system_content))
     db.session.commit()
 
+    # Append user message
     messages = AIMessage.query.filter_by(user_id=user_id).order_by(AIMessage.timestamp).all()
-
     user_msg = AIMessage(user_id=user_id, role="user", content=question)
     db.session.add(user_msg)
     db.session.commit()
@@ -191,7 +214,6 @@ def chat():
 
     try:
         print("🚀 Sending to OpenAI...")
-
         response = client.chat.completions.create(
             model="gpt-4",
             messages=message_payload
@@ -199,8 +221,7 @@ def chat():
         ai_response = response.choices[0].message.content
         print("💬 AI Response:", ai_response)
 
-        ai_msg = AIMessage(user_id=user_id, role="assistant", content=ai_response)
-        db.session.add(ai_msg)
+        db.session.add(AIMessage(user_id=user_id, role="assistant", content=ai_response))
         db.session.commit()
 
         return jsonify({"answer": ai_response})
@@ -208,6 +229,7 @@ def chat():
     except Exception as e:
         print("❌ Error while calling OpenAI:", e)
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/db/tables')
 def list_tables():
