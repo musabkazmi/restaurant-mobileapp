@@ -414,7 +414,23 @@ def list_orders():
         })
 
     return jsonify({"success": True, "orders": result})
+@app.route("/order/update-status/<int:order_id>", methods=["PUT"])
+def update_order_status(order_id):
+    data = request.get_json()
+    new_status = data.get("status")
 
+    if new_status not in ["pending", "in_process", "completed"]:
+        return jsonify({"success": False, "message": "Invalid status."}), 400
+
+    order = Order.query.get(order_id)
+
+    if not order:
+        return jsonify({"success": False, "message": "Order not found."}), 404
+
+    order.status = new_status
+    db.session.commit()
+
+    return jsonify({"success": True, "message": f"Order {order_id} updated to {new_status}."})
 # ✅ This line is skipped when run by Gunicorn (Render uses this mode)
 if __name__ == '__main__':
     with app.app_context():
