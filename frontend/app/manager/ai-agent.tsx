@@ -8,10 +8,12 @@ import {
   StyleSheet,
   ActivityIndicator,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Alert,
 } from 'react-native';
-import { BASE_URL } from "../../config";
-import { router } from "expo-router";
+import { Audio } from 'expo-av';
+import { BASE_URL } from '../../config';
+import { router } from 'expo-router';
 
 type Message = {
   sender: 'manager' | 'ai';
@@ -22,12 +24,14 @@ export default function AIAgentScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
-  const handleSend = async () => {
-    if (!question.trim()) return;
+  const handleSend = async (customText?: string) => {
+    const q = customText ?? question;
+    if (!q.trim()) return;
 
-    const userMessage: Message = { sender: 'manager', text: question };
+    const userMessage: Message = { sender: 'manager', text: q };
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setQuestion('');
@@ -38,27 +42,30 @@ export default function AIAgentScreen() {
         method: 'POST',
         credentials: 'include',
         headers: {
-          'Authorization': 'Bearer secret-manager-ai-token',
-          'Content-Type': 'application/json'
+          Authorization: 'Bearer secret-manager-ai-token',
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          question,
-          user_id: globalThis.userId
-        })
+          question: q,
+          user_id: globalThis.userId,
+        }),
       });
 
       const data = await response.json();
       const aiMessage: Message = {
         sender: 'ai',
-        text: data.answer || 'No answer received from AI.'
+        text: data.answer || 'No answer received from AI.',
       };
 
       setMessages([...newMessages, aiMessage]);
     } catch (error) {
-      setMessages([...newMessages, {
-        sender: 'ai',
-        text: '⚠️ Error talking to AI agent.'
-      }]);
+      setMessages([
+        ...newMessages,
+        {
+          sender: 'ai',
+          text: '⚠️ Error talking to AI agent.',
+        },
+      ]);
     }
 
     setLoading(false);
@@ -67,10 +74,95 @@ export default function AIAgentScreen() {
     }, 100);
   };
 
+  const startRecording = async () => {
+    try {
+      const permission = await Audio.requestPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Please enable microphone access.');
+        return;
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      const rec = new Audio.Recording();
+      await rec.prepareToRecordAsync({
+  android: {
+    extension: '.m4a',
+    outputFormat: 2, // MPEG_4
+    audioEncoder: 3, // AAC
+    sampleRate: 44100,
+    numberOfChannels: 2,
+    bitRate: 128000,
+  },
+  ios: {
+    extension: '.wav',
+    audioQuality: 96, // HIGH
+    sampleRate: 44100,
+    numberOfChannels: 2,
+    bitRate: 128000,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  },
+  web: {
+    mimeType: 'audio/webm',
+    bitsPerSecond: 128000,
+  }
+});
+
+
+      await rec.startAsync();
+      setRecording(rec);
+      console.log('🎙️ Recording started');
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!recording) return;
+    try {
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      setRecording(null);
+      console.log('🎙️ Recording stopped. File:', uri);
+
+      if (!uri) return;
+
+      // Send to STT server (OpenAI Whisper or backend proxy)
+      const formData = new FormData();
+      formData.append('file', {
+        uri,
+        name: 'audio.wav',
+        type: 'audio/wav',
+      } as any);
+
+      const response = await fetch(`${BASE_URL}/stt/whisper`, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      const result = await response.json();
+      if (result.text) {
+        handleSend(result.text); // Use transcribed text
+      } else {
+        Alert.alert('Error', 'Could not transcribe audio.');
+      }
+    } catch (error) {
+      console.error('Recording error:', error);
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <Text style={styles.heading}>🧠 Ask the AI Agent</Text>
       <Button title="Back" onPress={() => router.back()} />
@@ -85,7 +177,9 @@ export default function AIAgentScreen() {
             key={index}
             style={[
               styles.messageBubble,
-              msg.sender === 'manager' ? styles.managerBubble : styles.aiBubble
+              msg.sender === 'manager'
+                ? styles.managerBubble
+                : styles.aiBubble,
             ]}
           >
             <Text style={styles.messageSender}>{msg.sender.toUpperCase()}</Text>
@@ -105,7 +199,14 @@ export default function AIAgentScreen() {
       {loading ? (
         <ActivityIndicator size="large" color="#00ffcc" style={{ marginTop: 10 }} />
       ) : (
-        <Button title="Send" onPress={handleSend} />
+        <View style={{ gap: 10 }}>
+          <Button title="Send" onPress={() => handleSend()} />
+          <Button
+            title={recording ? '⏹ Stop Recording' : '🎙️ Start Voice Input'}
+            onPress={recording ? stopRecording : startRecording}
+            color={recording ? '#ff4444' : '#2196f3'}
+          />
+        </View>
       )}
     </KeyboardAvoidingView>
   );

@@ -1,40 +1,36 @@
 from flask import Flask, request, jsonify, session
-from flask_cors import CORS
+from flask_cors import CORS, cross_origin
 from flask_sqlalchemy import SQLAlchemy
 from flask_session import Session
 from dotenv import load_dotenv
+from werkzeug.utils import secure_filename
 import os
+import openai
+import tempfile
 from openai import OpenAI
-
-# from models import db, User, Restaurant, MenuItem, AIMessage  # Import AIMessage
 from models import db, User, Restaurant, MenuItem, AIMessage, Order, OrderItem
+from sqlalchemy import text
 
-from sqlalchemy import text  
 
 load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-client = OpenAI(api_key=OPENAI_API_KEY)
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True, origins=["http://localhost:8081"])
 
-# Session config for storing chat history
 app.secret_key = 'your-super-secret-key'
 app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DB_URI")
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SESSION_COOKIE_SAMESITE'] = "Lax"
+app.config['SESSION_COOKIE_SECURE'] = False
+
 Session(app)
+db.init_app(app)
 
 MANAGER_AI_TOKEN = "secret-manager-ai-token"
-
-# Use external DB URI from environment
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DB_URI")
-# app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:1234@localhost/restaurant_db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-app.config['SESSION_COOKIE_SAMESITE'] = "Lax"
-app.config['SESSION_COOKIE_SECURE'] = False  # for local dev
-
-db.init_app(app)
 
 @app.route('/')
 def home():
@@ -365,7 +361,7 @@ def update_order_status(order_id):
 @app.route('/ai/chat', methods=['POST'])
 def chat():
     auth = request.headers.get("Authorization")
-    if auth != "Bearer secret-manager-ai-token":
+    if auth != f"Bearer {MANAGER_AI_TOKEN}":
         return jsonify({"error": "Unauthorized"}), 403
 
     data = request.get_json()
@@ -376,24 +372,17 @@ def chat():
         return jsonify({"error": "Missing question or user_id"}), 400
 
     print(f"\n🔹 Question from user {user_id}: {question}")
-
-    # Load user
     user = User.query.get(user_id)
     if not user:
         return jsonify({"error": "User not found"}), 404
 
     restaurant_id = user.restaurant_id
 
-    # Load all relevant data
     print("📦 Fetching menu, orders, and users...")
     menu_items = MenuItem.query.filter_by(restaurant_id=restaurant_id).all()
     orders = Order.query.filter_by(restaurant_id=restaurant_id).order_by(Order.timestamp.desc()).limit(10).all()
     users = User.query.all()
 
-    if not menu_items:
-        return jsonify({"error": "No menu items found for this restaurant"}), 404
-
-    # Format data
     formatted_menu = "\n".join([
         f"{item.name} (₹{item.price}) - {item.category} | "
         f"{'Vegan' if item.vegan else 'Non-Vegan'} | "
@@ -412,7 +401,6 @@ def chat():
         for u in users
     ])
 
-    # Clear old system prompts
     AIMessage.query.filter_by(user_id=user_id, role="system").delete()
     system_msg = AIMessage(
         user_id=user_id,
@@ -433,12 +421,8 @@ Use the data below to answer questions accurately.
     )
     db.session.add(system_msg)
     db.session.commit()
-    print("✅ System message injected.")
 
-    # Fetch updated message history
     messages = AIMessage.query.filter_by(user_id=user_id).order_by(AIMessage.timestamp).all()
-
-    # Append current user message
     user_msg = AIMessage(user_id=user_id, role="user", content=question)
     db.session.add(user_msg)
     db.session.commit()
@@ -453,9 +437,10 @@ Use the data below to answer questions accurately.
     try:
         print("🚀 Sending to OpenAI...")
         response = client.chat.completions.create(
-            model="gpt-4",
+             model="gpt-4",
             messages=message_payload
-        )
+)
+
         ai_response = response.choices[0].message.content
         print("💬 AI Response:", ai_response)
 
@@ -467,6 +452,30 @@ Use the data below to answer questions accurately.
 
     except Exception as e:
         print("❌ Error while calling OpenAI:", e)
+        return jsonify({"error": str(e)}), 500
+    
+@app.route("/stt/whisper", methods=["POST"])
+def whisper_stt():
+    if "file" not in request.files:
+        return jsonify({"error": "No audio file provided"}), 400
+
+    file = request.files["file"]
+    filename = secure_filename(file.filename)
+
+    # Cross-platform temp file path
+    temp_dir = tempfile.gettempdir()
+    file_path = os.path.join(temp_dir, filename)
+    file.save(file_path)
+
+    try:
+        with open(file_path, "rb") as audio_file:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file
+            )
+        return jsonify({"text": transcript.text})
+    except Exception as e:
+        print("❌ Whisper error:", e)
         return jsonify({"error": str(e)}), 500
 
 # ✅ This line is skipped when run by Gunicorn (Render uses this mode)
