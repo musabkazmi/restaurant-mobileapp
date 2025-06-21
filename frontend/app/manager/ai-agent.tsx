@@ -27,6 +27,7 @@ export default function AIAgentScreen() {
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [ttsEnabled, setTtsEnabled] = useState(true); // 🔊 Toggle state
   const scrollViewRef = useRef<ScrollView>(null);
 
   const handleSend = async (customText?: string) => {
@@ -60,7 +61,10 @@ export default function AIAgentScreen() {
       };
 
       setMessages([...newMessages, aiMessage]);
-      await playTTS(aiMessage.text); // 🔊 Speak the answer
+
+      if (ttsEnabled) {
+        await playTTS(aiMessage.text); // 🔊 Only if enabled
+      }
     } catch (error) {
       setMessages([
         ...newMessages,
@@ -76,30 +80,31 @@ export default function AIAgentScreen() {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 100);
   };
-const playTTS = async (text: string) => {
-  try {
-    const response = await fetch(`${BASE_URL}/tts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
 
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = new Uint8Array(arrayBuffer);
+  const playTTS = async (text: string) => {
+    try {
+      const response = await fetch(`${BASE_URL}/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
 
-    const path = FileSystem.cacheDirectory + 'tts.mp3';
-    await FileSystem.writeAsStringAsync(
-      path,
-      Buffer.from(buffer).toString('base64'),
-      { encoding: FileSystem.EncodingType.Base64 }
-    );
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = new Uint8Array(arrayBuffer);
 
-    const { sound } = await Audio.Sound.createAsync({ uri: path });
-    await sound.playAsync();
-  } catch (err) {
-    console.error('TTS error:', err);
-  }
-};
+      const path = FileSystem.cacheDirectory + 'tts.mp3';
+      await FileSystem.writeAsStringAsync(
+        path,
+        Buffer.from(buffer).toString('base64'),
+        { encoding: FileSystem.EncodingType.Base64 }
+      );
+
+      const { sound } = await Audio.Sound.createAsync({ uri: path });
+      await sound.playAsync();
+    } catch (err) {
+      console.error('TTS error:', err);
+    }
+  };
 
   const startRecording = async () => {
     try {
@@ -118,8 +123,8 @@ const playTTS = async (text: string) => {
       await rec.prepareToRecordAsync({
         android: {
           extension: '.m4a',
-          outputFormat: 2, // MPEG_4
-          audioEncoder: 3, // AAC
+          outputFormat: 2,
+          audioEncoder: 3,
           sampleRate: 44100,
           numberOfChannels: 2,
           bitRate: 128000,
@@ -175,7 +180,7 @@ const playTTS = async (text: string) => {
 
       const result = await response.json();
       if (result.text) {
-        handleSend(result.text); // Use transcribed text
+        handleSend(result.text);
       } else {
         Alert.alert('Error', 'Could not transcribe audio.');
       }
@@ -234,6 +239,11 @@ const playTTS = async (text: string) => {
             title={recording ? '⏹ Stop Recording' : '🎙️ Start Voice Input'}
             onPress={recording ? stopRecording : startRecording}
             color={recording ? '#ff4444' : '#2196f3'}
+          />
+          <Button
+            title={ttsEnabled ? '🔇 Disable Voice Output' : '🔊 Enable Voice Output'}
+            onPress={() => setTtsEnabled(prev => !prev)}
+            color={ttsEnabled ? '#ff9500' : '#34c759'}
           />
         </View>
       )}
