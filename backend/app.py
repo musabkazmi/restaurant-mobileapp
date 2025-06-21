@@ -135,79 +135,7 @@ def update_menu_item(item_id):
         db.session.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
 
-@app.route('/ai/chat', methods=['POST'])
-def chat():
-    auth = request.headers.get("Authorization")
-    if auth != "Bearer secret-manager-ai-token":
-        return jsonify({"error": "Unauthorized"}), 403
 
-    data = request.get_json()
-    question = data.get("question")
-    user_id = data.get("user_id")
-
-    if not question or not user_id:
-        return jsonify({"error": "Missing question or user_id"}), 400
-
-    print(f"\n🔹 Question from user {user_id}: {question}")
-
-    # Load user
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
-
-    # Load latest menu
-    menu_items = MenuItem.query.filter_by(restaurant_id=user.restaurant_id).all()
-    if not menu_items:
-        return jsonify({"error": "No menu items found for this restaurant"}), 404
-
-    print(f"📋 Found {len(menu_items)} menu items for restaurant {user.restaurant_id}")
-
-    formatted_menu = "\n".join([
-        f"{item.name} (₹{item.price}) - {item.category} | "
-        f"{'Vegan' if item.vegan else 'Non-Vegan'} | "
-        f"{'Available' if item.available else 'Unavailable'}\n"
-        f"Description: {item.description}"
-        for item in menu_items
-    ])
-
-    # Always inject fresh system message (replaces old ones)
-    AIMessage.query.filter_by(user_id=user_id, role="system").delete()
-    system_msg = AIMessage(
-        user_id=user_id,
-        role="system",
-        content=f"You are a helpful restaurant assistant AI. ONLY use this menu:\n\n{formatted_menu}"
-    )
-    db.session.add(system_msg)
-    db.session.commit()
-
-    messages = AIMessage.query.filter_by(user_id=user_id).order_by(AIMessage.timestamp).all()
-
-    user_msg = AIMessage(user_id=user_id, role="user", content=question)
-    db.session.add(user_msg)
-    db.session.commit()
-    messages.append(user_msg)
-
-    message_payload = [{"role": m.role, "content": m.content} for m in messages]
-
-    try:
-        print("🚀 Sending to OpenAI...")
-
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=message_payload
-        )
-        ai_response = response.choices[0].message.content
-        print("💬 AI Response:", ai_response)
-
-        ai_msg = AIMessage(user_id=user_id, role="assistant", content=ai_response)
-        db.session.add(ai_msg)
-        db.session.commit()
-
-        return jsonify({"answer": ai_response})
-
-    except Exception as e:
-        print("❌ Error while calling OpenAI:", e)
-        return jsonify({"error": str(e)}), 500
 
 @app.route('/db/tables')
 def list_tables():
@@ -414,6 +342,7 @@ def list_orders():
         })
 
     return jsonify({"success": True, "orders": result})
+
 @app.route('/ai/chat', methods=['POST'])
 def chat():
     auth = request.headers.get("Authorization")
@@ -520,7 +449,6 @@ Use the data below to answer questions accurately.
     except Exception as e:
         print("❌ Error while calling OpenAI:", e)
         return jsonify({"error": str(e)}), 500
-
 
 # ✅ This line is skipped when run by Gunicorn (Render uses this mode)
 if __name__ == '__main__':
