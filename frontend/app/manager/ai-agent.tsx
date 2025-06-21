@@ -12,8 +12,10 @@ import {
   Alert,
 } from 'react-native';
 import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 import { BASE_URL } from '../../config';
 import { router } from 'expo-router';
+import { Buffer } from 'buffer';
 
 type Message = {
   sender: 'manager' | 'ai';
@@ -58,6 +60,7 @@ export default function AIAgentScreen() {
       };
 
       setMessages([...newMessages, aiMessage]);
+      await playTTS(aiMessage.text); // 🔊 Speak the answer
     } catch (error) {
       setMessages([
         ...newMessages,
@@ -73,6 +76,30 @@ export default function AIAgentScreen() {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 100);
   };
+const playTTS = async (text: string) => {
+  try {
+    const response = await fetch(`${BASE_URL}/tts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = new Uint8Array(arrayBuffer);
+
+    const path = FileSystem.cacheDirectory + 'tts.mp3';
+    await FileSystem.writeAsStringAsync(
+      path,
+      Buffer.from(buffer).toString('base64'),
+      { encoding: FileSystem.EncodingType.Base64 }
+    );
+
+    const { sound } = await Audio.Sound.createAsync({ uri: path });
+    await sound.playAsync();
+  } catch (err) {
+    console.error('TTS error:', err);
+  }
+};
 
   const startRecording = async () => {
     try {
@@ -89,30 +116,29 @@ export default function AIAgentScreen() {
 
       const rec = new Audio.Recording();
       await rec.prepareToRecordAsync({
-  android: {
-    extension: '.m4a',
-    outputFormat: 2, // MPEG_4
-    audioEncoder: 3, // AAC
-    sampleRate: 44100,
-    numberOfChannels: 2,
-    bitRate: 128000,
-  },
-  ios: {
-    extension: '.wav',
-    audioQuality: 96, // HIGH
-    sampleRate: 44100,
-    numberOfChannels: 2,
-    bitRate: 128000,
-    linearPCMBitDepth: 16,
-    linearPCMIsBigEndian: false,
-    linearPCMIsFloat: false,
-  },
-  web: {
-    mimeType: 'audio/webm',
-    bitsPerSecond: 128000,
-  }
-});
-
+        android: {
+          extension: '.m4a',
+          outputFormat: 2, // MPEG_4
+          audioEncoder: 3, // AAC
+          sampleRate: 44100,
+          numberOfChannels: 2,
+          bitRate: 128000,
+        },
+        ios: {
+          extension: '.wav',
+          audioQuality: 96,
+          sampleRate: 44100,
+          numberOfChannels: 2,
+          bitRate: 128000,
+          linearPCMBitDepth: 16,
+          linearPCMIsBigEndian: false,
+          linearPCMIsFloat: false,
+        },
+        web: {
+          mimeType: 'audio/webm',
+          bitsPerSecond: 128000,
+        },
+      });
 
       await rec.startAsync();
       setRecording(rec);
@@ -132,7 +158,6 @@ export default function AIAgentScreen() {
 
       if (!uri) return;
 
-      // Send to STT server (OpenAI Whisper or backend proxy)
       const formData = new FormData();
       formData.append('file', {
         uri,
@@ -197,7 +222,11 @@ export default function AIAgentScreen() {
       />
 
       {loading ? (
-        <ActivityIndicator size="large" color="#00ffcc" style={{ marginTop: 10 }} />
+        <ActivityIndicator
+          size="large"
+          color="#00ffcc"
+          style={{ marginTop: 10 }}
+        />
       ) : (
         <View style={{ gap: 10 }}>
           <Button title="Send" onPress={() => handleSend()} />

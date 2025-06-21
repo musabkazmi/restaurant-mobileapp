@@ -11,6 +11,14 @@ from openai import OpenAI
 from models import db, User, Restaurant, MenuItem, AIMessage, Order, OrderItem
 from sqlalchemy import text
 
+from flask import send_file
+
+# from elevenlabs import generate
+import uuid
+from elevenlabs import ElevenLabs
+from elevenlabs.client import ElevenLabs
+client1 = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
+
 
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -476,6 +484,48 @@ def whisper_stt():
         return jsonify({"text": transcript.text})
     except Exception as e:
         print("❌ Whisper error:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# In your route:
+
+@app.route("/tts", methods=["POST"])
+def tts():
+    data = request.get_json()
+    text = data.get("text", "")
+
+    # text = "hello"
+    if not text:
+        return jsonify({"error": "Missing text"}), 400
+
+    try:
+        print(f"🔊 Requested TTS for text: {text[:100]}...")
+
+        # Initialize client
+        client = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
+
+        # Get the first available voice
+        voice_id = client.voices.get_all().voices[0].voice_id
+        print(f"🎤 Using voice ID: {voice_id}")
+
+        # Generate audio (generator)
+        audio = client.text_to_speech.convert(
+            voice_id=voice_id,
+            model_id="eleven_monolingual_v1",
+            text=text
+        )
+
+        # Save chunks to file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
+            for chunk in audio:
+                f.write(chunk)
+            temp_path = f.name
+
+        print(f"✅ Audio saved at: {temp_path}")
+        return send_file(temp_path, mimetype="audio/mpeg")
+
+    except Exception as e:
+        print("❌ TTS error:", e)
         return jsonify({"error": str(e)}), 500
 
 # ✅ This line is skipped when run by Gunicorn (Render uses this mode)
