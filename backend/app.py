@@ -342,6 +342,25 @@ def list_orders():
         })
 
     return jsonify({"success": True, "orders": result})
+from flask_cors import cross_origin
+
+@app.route('/order/update-status/<int:order_id>', methods=['PUT', 'OPTIONS'])
+@cross_origin()  # Allow CORS from frontend
+def update_order_status(order_id):
+    data = request.get_json()
+    new_status = data.get("status")
+
+    if new_status not in ["pending", "completed"]:
+        return jsonify({"success": False, "message": "Invalid status"}), 400
+
+    order = Order.query.get(order_id)
+    if not order:
+        return jsonify({"success": False, "message": "Order not found"}), 404
+
+    order.status = new_status
+    db.session.commit()
+
+    return jsonify({"success": True, "message": f"Order {order_id} updated to {new_status}."})
 
 @app.route('/ai/chat', methods=['POST'])
 def chat():
